@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import * as mindcraft from './mindcraft.js';
 import { readFileSync } from 'fs';
+import os from 'os';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Mindserver is:
@@ -276,10 +277,32 @@ export function createMindServer(host_public = false, port = 8080) {
         });
     });
 
-    if (host_public) {
-        console.log('Public hosting not supported yet. Using localhost.');
+    // Decide host binding:
+    // - If host_public parameter is true OR HOST_PUBLIC env var is 'true' OR HOST env is '0.0.0.0', bind to 0.0.0.0 (all interfaces).
+    // - Otherwise bind to localhost (127.0.0.1).
+    const envHostPublic = (process.env.HOST_PUBLIC === 'true') || (process.env.HOST === '0.0.0.0');
+    const host = (host_public || envHostPublic) ? '0.0.0.0' : '127.0.0.1';
+
+    if (host === '0.0.0.0') {
+        // Try to find a usable LAN IP to suggest to the user
+        const interfaces = os.networkInterfaces();
+        let lanIp = null;
+        for (const name of Object.keys(interfaces)) {
+            for (const iface of interfaces[name]) {
+                if (iface.family === 'IPv4' && !iface.internal) {
+                    lanIp = iface.address;
+                    break;
+                }
+            }
+            if (lanIp) break;
+        }
+        if (lanIp) {
+            console.log(`MindServer binding to all interfaces (0.0.0.0). Accessible on your LAN at http://${lanIp}:${port}`);
+        } else {
+            console.log(`MindServer binding to all interfaces (0.0.0.0). Accessible on your LAN at http://<your-computer-ip>:${port}`);
+        }
     }
-    const host = 'localhost';
+
     server.listen(port, host, () => {
         console.log(`MindServer running on port ${port} on host ${host}`);
     });
