@@ -23,6 +23,36 @@ process.on('uncaughtException', (err) => {
     console.error('Uncaught Exception:', err && (err.stack || err.message || err));
 });
 
+// small helper to listen with fallback ports if needed
+async function listenWithFallback(server, startPort, host='0.0.0.0', maxAttempts=5) {
+    let port = Number(startPort) || 8080;
+    for (let i = 0; i < maxAttempts; i++) {
+        try {
+            await new Promise((resolve, reject) => {
+                const onError = (err) => { reject(err); };
+                const onListening = () => { resolve(); };
+                server.once('error', onError);
+                server.once('listening', onListening);
+                server.listen(port, host);
+            });
+            console.log(`Fallback server listening on port ${port} (${host}).`);
+            return port;
+        } catch (err) {
+            // Clean up listeners and try next port if address in use
+            server.removeAllListeners('error');
+            server.removeAllListeners('listening');
+            if (err && err.code === 'EADDRINUSE') {
+                console.warn(`Port ${port} in use; trying ${port + 1}...`);
+                port = port + 1;
+                continue;
+            }
+            console.error('Error while attempting to bind fallback server:', err && (err.stack || err));
+            throw err;
+        }
+    }
+    throw new Error('Failed to bind fallback server after multiple attempts');
+}
+
 // Try to import and run main.js
 (async () => {
     try {
@@ -55,10 +85,12 @@ process.on('uncaughtException', (err) => {
             res.end(`<h1>Mindcraft fallback</h1><p>main.js failed to start. See /error for details.</p><pre>${escapeHtml(lastError)}</pre>`);
         });
 
-        server.listen(fallbackPort, '0.0.0.0', () => {
-            console.log(`Fallback server listening on port ${fallbackPort} (0.0.0.0).`);
+        try {
+            await listenWithFallback(server, fallbackPort, '0.0.0.0', 10);
             console.log('Open /health for quick check and /error to see the import error.');
-        });
+        } catch (listenErr) {
+            console.error('Failed to start fallback server:', listenErr && (listenErr.stack || listenErr));
+        }
 
         function escapeHtml(s) {
             return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
