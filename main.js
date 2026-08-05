@@ -73,8 +73,14 @@ if (process.env.SETTINGS_JSON) {
 
 Mindcraft.init(false, settings.mindserver_port, settings.auto_open_ui);
 
-for (let profile of settings.profiles) {
-    const profile_json = JSON.parse(readFileSync(profile, 'utf8'));
-    settings.profile = profile_json;
-    Mindcraft.createAgent(settings);
+// Test mode: if SKIP_CREATE_AGENTS=true, skip spawning agent processes.
+// This allows the app to boot on Railway without connecting to a Minecraft server.
+if (process.env.SKIP_CREATE_AGENTS === 'true' || process.env.RAILWAY_TEST === 'true') {
+    console.log('SKIP_CREATE_AGENTS=true: skipping creating agents for test mode.');
+} else {
+    for (let profile of settings.profiles) {
+        const profile_json = JSON.parse(readFileSync(profile, 'utf8'));
+        settings.profile = profile_json;
+        Mindcraft.createAgent(settings);
+    }
 }
