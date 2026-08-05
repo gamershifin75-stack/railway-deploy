@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import * as mindcraft from './mindcraft.js';
 import { readFileSync } from 'fs';
 import os from 'os';
+import httpProxy from 'http-proxy';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // Mindserver is:
@@ -54,6 +55,34 @@ export function createMindServer(host_public = false, port = 8080) {
     // Serve static files
     const __dirname = path.dirname(fileURLToPath(import.meta.url));
     app.use(express.static(path.join(__dirname, 'public')));
+
+    // Health endpoint for quick UI check
+    app.get('/health', (req, res) => {
+      res.status(200).send('ok');
+    });
+
+    // Viewer proxy so embedded iframes on Railway can reach agent viewer ports.
+    const viewerProxy = httpProxy.createProxyServer({});
+
+    // Proxy HTTP requests for /viewer/:agent/... to the agent's viewer port.
+    app.use('/viewer/:agent', (req, res) => {
+      try {
+        const agentName = req.params.agent;
+        const conn = agent_connections[agentName];
+        if (!conn || !conn.viewer_port) {
+          res.status(404).send(`Viewer for agent '${agentName}' not found.`);
+          return;
+        }
+        const target = `http://127.0.0.1:${conn.viewer_port}`;
+        viewerProxy.web(req, res, { target, changeOrigin: true }, (err) => {
+          console.error(`Viewer proxy error for ${agentName} -> ${target}:`, err && (err.stack || err));
+          try { res.status(502).send('Viewer proxy error'); } catch (e) { /* ignore */ }
+        });
+      } catch (e) {
+        console.error('Viewer proxy unexpected error:', e && (e.stack || e));
+        res.status(500).send('Server error');
+      }
+    });
 
     // Texture proxy: resolve item/block textures using minecraft-assets with version fallback
     app.get('/assets/item/:agent/:name.png', async (req, res) => {
@@ -107,10 +136,10 @@ export function createMindServer(host_public = false, port = 8080) {
             }
             // Not found, fallback svg
             res.setHeader('Content-Type', 'image/svg+xml');
-            res.status(404).send('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="100%" height="100%" fill="#444"/><text x="50%" y="55%" font-size="12" fill="#bbb" text-anchor="middle">?</text></svg>');
+            res.status(404).send('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="100%" height="100%" fill="#444"/><text x="50%" y="55%" font-size="12" fill="#bbb" tex[...]');
         } catch (e) {
             res.setHeader('Content-Type', 'image/svg+xml');
-            res.status(500).send('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="100%" height="100%" fill="#444"/><text x="50%" y="55%" font-size="12" fill="#bbb" text-anchor="middle">!</text></svg>');
+            res.status(500).send('<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="100%" height="100%" fill="#444"/><text x="50%" y="55%" font-size="12" fill="#bbb" tex[...]');
         }
     });
 
@@ -259,10 +288,10 @@ export function createMindServer(host_public = false, port = 8080) {
 		socket.on('send-message', (agentName, data) => {
 			if (!agent_connections[agentName]) {
 				console.warn(`Agent ${agentName} not in game, cannot send message via MindServer.`);
-                return;
+	                return;
 			}
 			try {
-                agent_connections[agentName].socket.emit('send-message', data);
+				agent_connections[agentName].socket.emit('send-message', data);
 			} catch (error) {
 				console.error('Error: ', error);
 			}
